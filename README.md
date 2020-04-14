@@ -19,4 +19,4 @@ opt -load-pass-plugin=<llvm-dir>/build/lib/LLVMStringObfuscator.so -passes="stri
 llc out.bc -o out.s
 clang -static out.s -o out
 ```
-5. Profit
+5. Leave a like :)
