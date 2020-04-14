@@ -1,6 +1,8 @@
 # LLVM String Obfuscator
 Hide all your precious strings without touching your source code.
 
+![image](https://github.com/tsarpaul/llvm-string-obfuscator/blob/master/image.png)
+
 ## How-To
 1. Download and compile LLVM, you can follow this guide:
 https://llvm.org/docs/GettingStarted.html
