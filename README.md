@@ -1,5 +1,5 @@
 # LLVM String Obfuscator
-Hide all your precious strings without touching your source code.
+Hide all your precious strings without touching a single line of your source code, powered by LLVM bytecode manipulation.
 
 ![image](https://github.com/tsarpaul/llvm-string-obfuscator/blob/master/image.png)
 
