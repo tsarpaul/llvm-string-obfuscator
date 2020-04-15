@@ -4,18 +4,21 @@ Hide all your precious strings without touching a single line of your source cod
 ![image](https://github.com/tsarpaul/llvm-string-obfuscator/blob/master/image.png)
 
 ## How-To
-1. Download and compile LLVM, you can follow this guide:
-https://llvm.org/docs/GettingStarted.html
-2. Copy StringObfuscator to the right LLVM directory and setup cmake:
+1. Install llvm
+```sudo apt install llvm```
+
+2. Build the StringObfuscator library:
 ```
-cp -r StringObfuscator <llvm-dir>/llvm/lib/Transforms/StringObfuscator
-echo add_subdirectory(StringObfuscator) >> <llvm-dir>/llvm/lib/Transforms/CMakeLists.txt
+mkdir build
+cd build
+cmake ..
+make
 ```
-3. Run ```make``` in the LLVM build directory. This will only compile the new pass if you have already compiled LLVM.
+
 4. Generate LLVM bytecode from your binary and run the StringObfuscator pass on it:
 ```
 clang -emit-llvm hello.c -c -o hello.bc
-opt -load-pass-plugin=<llvm-dir>/build/lib/LLVMStringObfuscator.so -passes="string-obfuscator-pass" < hello.bc -o out.bc
+opt -load-pass-plugin=<string-obfuscator-dir>/build/lib/LLVMStringObfuscator.so -passes="string-obfuscator-pass" < hello.bc -o out.bc
 llc out.bc -o out.s
 clang -static out.s -o out
 ```
