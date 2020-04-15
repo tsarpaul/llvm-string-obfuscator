@@ -1,3 +1,4 @@
+build/
 decode.cpp
 cmd
 *.swp
