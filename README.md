@@ -15,11 +15,11 @@ cmake ..
 make
 ```
 
-4. Generate LLVM bytecode from your binary and run the StringObfuscator pass on it:
+3. Generate LLVM bytecode from your binary and run the StringObfuscator pass on it:
 ```
 clang -emit-llvm hello.c -c -o hello.bc
 opt -load-pass-plugin=<string-obfuscator-dir>/build/lib/LLVMStringObfuscator.so -passes="string-obfuscator-pass" < hello.bc -o out.bc
 llc out.bc -o out.s
 clang -static out.s -o out
 ```
-5. Leave a like :)
+4. Leave a like :)
