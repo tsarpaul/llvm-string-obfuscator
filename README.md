@@ -22,4 +22,13 @@ opt -load-pass-plugin=<string-obfuscator-dir>/build/lib/LLVMStringObfuscator.so 
 llc out.bc -o out.s
 clang -static out.s -o out
 ```
+
+For Rust:
+```
+rustc hello.rs --emit=llvm-bc -o hellor.bc
+opt -load-pass-plugin=/home/polka/Documents/Code/llvm-string-obfuscator/build/StringObfuscator/libLLVMStringObfuscator.so -passes="string-obfuscator-pass" < ~/Documents/Code/llvm-string-obfuscator/examples/hellor.bc -o out.bc
+llc out.bc -o out.s
+ruststd=$(basename $(ls /usr/lib/rustlib/x86_64-unknown-linux-gnu/lib/libstd*.so) | sed 's/lib//g')
+clang out.s -L/usr/lib/rustlib/x86_64-unknown-linux-gnu/lib -l$ruststd -o out
+```
 4. Leave a like :)

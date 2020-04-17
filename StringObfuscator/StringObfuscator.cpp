@@ -6,12 +6,26 @@
 #include "llvm/IR/ValueSymbolTable.h"
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/Transforms/Utils/Cloning.h"
+#include <typeinfo>
 
 using namespace std;
 using namespace llvm;
 
 namespace {
-Function *createDecodeStubFunc(Module &M, vector<GlobalVariable*> &EncodedStrings, Function *DecodeFunc){
+class GlobalString {
+	public:
+		GlobalVariable* Glob;
+		unsigned int index;
+		int type;
+
+		static const int SIMPLE_STRING_TYPE = 1;
+		static const int STRUCT_STRING_TYPE = 2;
+
+		GlobalString(GlobalVariable* Glob) : Glob(Glob), index(-1), type(SIMPLE_STRING_TYPE) {}
+		GlobalString(GlobalVariable* Glob, unsigned int index) : Glob(Glob), index(index), type(STRUCT_STRING_TYPE) {}
+};
+
+Function *createDecodeStubFunc(Module &M, vector<GlobalString*> &GlobalStrings, Function *DecodeFunc){
 	auto &Ctx = M.getContext();
 	// Add DecodeStub function
 	FunctionCallee DecodeStubCallee = M.getOrInsertFunction("decode_stub",
@@ -24,9 +38,16 @@ Function *createDecodeStubFunc(Module &M, vector<GlobalVariable*> &EncodedString
 	IRBuilder<> Builder(BB);
 
 	// Add calls to decode every encoded global
-	for(GlobalVariable *String : EncodedStrings){
-		auto *cast = Builder.CreatePointerCast(String, Type::getInt8PtrTy(Ctx, 8));
-		Builder.CreateCall(DecodeFunc, {cast});
+	for(GlobalString *GlobString : GlobalStrings){
+		if(GlobString->type == GlobString->SIMPLE_STRING_TYPE){
+			auto *StrPtr = Builder.CreatePointerCast(GlobString->Glob, Type::getInt8PtrTy(Ctx, 8));
+			Builder.CreateCall(DecodeFunc, {StrPtr});
+		}
+		else if(GlobString->type == GlobString->STRUCT_STRING_TYPE){
+			auto *String = Builder.CreateStructGEP(GlobString->Glob, GlobString->index);
+			auto *StrPtr = Builder.CreatePointerCast(String, Type::getInt8PtrTy(Ctx, 8));
+			Builder.CreateCall(DecodeFunc, {StrPtr});
+		}
 	}
 	Builder.CreateRetVoid();
 
@@ -99,9 +120,19 @@ BasicBlock& createDecodeStubBlock(Function *F, Function *DecodeStubFunc){
 	return *NewBB;
 }
 
-vector<GlobalVariable*> encodeGlobalStrings(Module& M){
+char *EncodeString(const char* Data, unsigned int Length) {
+	// Encode string
+	char *NewData = (char*)malloc(Length);
+	for(unsigned int i = 0; i < Length; i++){
+		NewData[i] = Data[i] + 1;
+	}
+
+	return NewData;
+}
+
+vector<GlobalString*> encodeGlobalStrings(Module& M){
+	vector<GlobalString*> GlobalStrings;
 	auto &Ctx = M.getContext();
-	vector<GlobalVariable*> EncodedStrings;
 
 	// Encode all global strings
 	for(GlobalVariable &Glob : M.globals()) {
@@ -109,42 +140,67 @@ vector<GlobalVariable*> encodeGlobalStrings(Module& M){
 		if (!Glob.hasInitializer() || Glob.hasExternalLinkage())
 			continue;
 
-		// Unwrap GlobalVariable
-		auto CDS = dyn_cast<ConstantDataSequential>(Glob.getInitializer());
-		if (!CDS || !CDS->isCString())
-			continue;
+		auto Initializer = Glob.getInitializer();
+		if (isa<ConstantDataArray>(Initializer)) {
+			// Unwrap GlobalVariable
+			auto CDA = cast<ConstantDataArray>(Initializer);
+			if (!CDA->isCString())
+				continue;
 
-		// Extract raw string
-		StringRef StrVal = CDS->getAsCString();	
-		const char *Data = StrVal.begin();
+			// Extract raw string
+			StringRef StrVal = CDA->getAsCString();	
+			const char *Data = StrVal.begin();
+			const int Size = StrVal.size();
 
-		// Encode string
-		char *NewData = (char*)malloc(strlen(Data)+1);
-		for(unsigned int i = 0; i < strlen(Data); i++){
-			NewData[i] = Data[i] + 1;
+			// Create encoded string variable
+			char *NewData = EncodeString(Data, Size);
+			auto *NewConst = ConstantDataArray::getString(Ctx, StringRef(NewData, Size), CDA->isCString());
+
+			// Overwrite the global value
+			Glob.setInitializer(NewConst);
+
+			GlobalStrings.push_back(new GlobalString(&Glob));
+			Glob.setConstant(false);
 		}
-		NewData[strlen(Data)] = '\x00';
+		else if(isa<ConstantStruct>(Initializer)){
+			// Handle structs
+			auto CS = cast<ConstantStruct>(Initializer);
+			if(Initializer->getNumOperands() > 1)
+				continue; // TODO: Fix bug when removing this: "Constant not found in constant table!"
+			for(unsigned int i = 0; i < Initializer->getNumOperands(); i++){
+				auto CDA = dyn_cast<ConstantDataArray>(CS->getOperand(i));
+				if (!CDA || !CDA->isString())
+					continue;
 
-		// Create encoded string variable
-		auto NewConst = ConstantDataArray::getString(Ctx, StringRef(NewData), true);
+				// Extract raw string
+				StringRef StrVal = CDA->getAsString();
+				const char *Data = StrVal.begin();
+				const int Size = StrVal.size();
 
-		Glob.setInitializer(NewConst);
-		Glob.setConstant(false);
+				// Create encoded string variable
+				char *NewData = EncodeString(Data, Size);
+				Constant *NewConst = ConstantDataArray::getString(Ctx, StringRef(NewData, Size), CDA->isCString());
 
-		EncodedStrings.push_back(&Glob);
+				// Overwrite the struct member
+				CS->setOperand(i, NewConst);
+
+				GlobalStrings.push_back(new GlobalString(&Glob, i));
+				Glob.setConstant(false);
+			}
+		}
 	}
 
-	return EncodedStrings;
+	return GlobalStrings;
 }
 
 struct StringObfuscatorModPass : public PassInfoMixin<StringObfuscatorModPass> {
 	PreservedAnalyses run(Module &M, ModuleAnalysisManager &MAM) {
-	auto EncodedStrings = encodeGlobalStrings(M);
+	auto GlobalStrings = encodeGlobalStrings(M);
 
 	// Inject functions
 	Function *DecodeFunc = createDecodeFunc(M);
 
-	Function *DecodeStub = createDecodeStubFunc(M, EncodedStrings, DecodeFunc);
+	Function *DecodeStub = createDecodeStubFunc(M, GlobalStrings, DecodeFunc);
 
 	// Inject a call to DecodeStub to main
 	Function *MainFunc = M.getFunction("main");
