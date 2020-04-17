@@ -104,7 +104,7 @@ Function *createDecodeFunc(Module &M){
 	return DecodeFunc;
 }
 
-BasicBlock& createDecodeStubBlock(Function *F, Function *DecodeStubFunc){
+void createDecodeStubBlock(Function *F, Function *DecodeStubFunc){
 	auto &Ctx = F->getContext();
 	BasicBlock &EntryBlock = F->getEntryBlock();
 
@@ -116,8 +116,6 @@ BasicBlock& createDecodeStubBlock(Function *F, Function *DecodeStubFunc){
 	Builder.CreateCall(DecodeStubFunc);
 	// Jump to original entry block
 	Builder.CreateBr(&EntryBlock);
-
-	return *NewBB;
 }
 
 char *EncodeString(const char* Data, unsigned int Length) {
@@ -140,21 +138,23 @@ vector<GlobalString*> encodeGlobalStrings(Module& M){
 		if (!Glob.hasInitializer() || Glob.hasExternalLinkage())
 			continue;
 
-		auto Initializer = Glob.getInitializer();
+		// Unwrap the global variable to receive its value
+		Constant *Initializer = Glob.getInitializer();
+
+		// Check if its a string
 		if (isa<ConstantDataArray>(Initializer)) {
-			// Unwrap GlobalVariable
 			auto CDA = cast<ConstantDataArray>(Initializer);
-			if (!CDA->isCString())
+			if (!CDA->isString())
 				continue;
 
 			// Extract raw string
-			StringRef StrVal = CDA->getAsCString();	
+			StringRef StrVal = CDA->getAsString();	
 			const char *Data = StrVal.begin();
 			const int Size = StrVal.size();
 
-			// Create encoded string variable
+			// Create encoded string variable. Constants are immutable so we must override with a new Constant.
 			char *NewData = EncodeString(Data, Size);
-			auto *NewConst = ConstantDataArray::getString(Ctx, StringRef(NewData, Size), CDA->isCString());
+			Constant *NewConst = ConstantDataArray::getString(Ctx, StringRef(NewData, Size), false);
 
 			// Overwrite the global value
 			Glob.setInitializer(NewConst);
@@ -179,7 +179,7 @@ vector<GlobalString*> encodeGlobalStrings(Module& M){
 
 				// Create encoded string variable
 				char *NewData = EncodeString(Data, Size);
-				Constant *NewConst = ConstantDataArray::getString(Ctx, StringRef(NewData, Size), CDA->isCString());
+				Constant *NewConst = ConstantDataArray::getString(Ctx, StringRef(NewData, Size), false);
 
 				// Overwrite the struct member
 				CS->setOperand(i, NewConst);
@@ -195,26 +195,18 @@ vector<GlobalString*> encodeGlobalStrings(Module& M){
 
 struct StringObfuscatorModPass : public PassInfoMixin<StringObfuscatorModPass> {
 	PreservedAnalyses run(Module &M, ModuleAnalysisManager &MAM) {
+	// Transform the strings
 	auto GlobalStrings = encodeGlobalStrings(M);
 
 	// Inject functions
 	Function *DecodeFunc = createDecodeFunc(M);
-
 	Function *DecodeStub = createDecodeStubFunc(M, GlobalStrings, DecodeFunc);
 
-	// Inject a call to DecodeStub to main
+	// Inject a call to DecodeStub from main
 	Function *MainFunc = M.getFunction("main");
-	
-	// Inject a block that calls DecodeStub
 	createDecodeStubBlock(MainFunc, DecodeStub);
 
 	return PreservedAnalyses::all();
-	};
-};
-
-struct StringObfuscatorFuncPass : public PassInfoMixin<StringObfuscatorFuncPass> {
-	PreservedAnalyses run(Function &F, FunctionAnalysisManager &FAM) {
-		return PreservedAnalyses::all();
 	};
 };
 } // end anonymous namespace
