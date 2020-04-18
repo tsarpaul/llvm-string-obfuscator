@@ -83,10 +83,10 @@ Function *createDecodeFunc(Module &M){
 	// Preheader block
 	Builder = new IRBuilder<>(BWhileBody);
 	PHINode *var1 = Builder->CreatePHI(Type::getInt8Ty(Ctx), 2, "var1");
-	PHINode *stringaddr06 = Builder->CreatePHI(Type::getInt8PtrTy(Ctx, 8), 2, "stringaddr06");
-	auto *sub11 = Builder->CreateSub(var1, ConstantInt::get(IntegerType::get(Ctx, 8), 1, true));
-	Builder->CreateStore(sub11, stringaddr06);
-	auto *incdecptr = Builder->CreateGEP(stringaddr06, ConstantInt::get(IntegerType::get(Ctx, 64), 1), "incdecptr");
+	PHINode *stringaddr07 = Builder->CreatePHI(Type::getInt8PtrTy(Ctx, 8), 2, "stringaddr07");
+	auto *sub = Builder->CreateSub(var1, ConstantInt::get(IntegerType::get(Ctx, 8), 1, true));
+	Builder->CreateStore(sub, stringaddr07);
+	auto *incdecptr = Builder->CreateGEP(stringaddr07, ConstantInt::get(IntegerType::get(Ctx, 64), 1), "incdecptr");
 	auto *var2 = Builder->CreateLoad(incdecptr, "var2");
 	auto cmp = Builder->CreateICmpEQ(var2, ConstantInt::get(IntegerType::get(Ctx, 8), 0), "cmp");
 	Builder->CreateCondBr(cmp, BWhileEnd, BWhileBody);
@@ -98,8 +98,8 @@ Function *createDecodeFunc(Module &M){
 	// Fill in PHIs
 	var1->addIncoming(var0, BEntry);
 	var1->addIncoming(var2, BWhileBody);
-	stringaddr06->addIncoming(incdecptr, BWhileBody);
-	stringaddr06->addIncoming(StrPtr, BEntry);
+	stringaddr07->addIncoming(incdecptr, BWhileBody);
+	stringaddr07->addIncoming(StrPtr, BEntry);
 
 	return DecodeFunc;
 }
