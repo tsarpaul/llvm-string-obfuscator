@@ -88,7 +88,7 @@ Function *createDecodeFunc(Module &M){
 	Builder->CreateStore(sub, stringaddr07);
 	auto *incdecptr = Builder->CreateGEP(stringaddr07, ConstantInt::get(IntegerType::get(Ctx, 64), 1), "incdecptr");
 	auto *var2 = Builder->CreateLoad(incdecptr, "var2");
-	auto cmp = Builder->CreateICmpEQ(var2, ConstantInt::get(IntegerType::get(Ctx, 8), 0), "cmp");
+	auto cmp = Builder->CreateICmpEQ(sub, ConstantInt::get(IntegerType::get(Ctx, 8), 0), "cmp");
 	Builder->CreateCondBr(cmp, BWhileEnd, BWhileBody);
 
 	// End block
