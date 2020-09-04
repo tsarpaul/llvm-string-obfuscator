@@ -1,5 +1,6 @@
 # LLVM String Obfuscator
 Hide all your precious strings without touching a single line of your source code, powered by LLVM bytecode manipulation.
+
 Accompanying post: https://medium.com/@polarply/build-your-first-llvm-obfuscator-80d16583392b
 
 ![image](https://github.com/tsarpaul/llvm-string-obfuscator/blob/master/image.png)
