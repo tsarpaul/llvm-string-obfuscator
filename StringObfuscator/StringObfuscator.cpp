@@ -89,12 +89,12 @@ Function *createDecodeStubFunc(Module &M, vector<GlobalString*> &GlobalStrings, 
 // }
 Function *createDecodeFunc(Module &M){
 	auto &Ctx = M.getContext();
-	FunctionCallee barcallee = M.getOrInsertFunction("decode", 
+	FunctionCallee DecodeFuncCallee = M.getOrInsertFunction("decode", 
 	/*ret*/			Type::getVoidTy(Ctx),
  /*args*/		Type::getInt8PtrTy(Ctx, 8),
  				Type::getInt32Ty(Ctx));
 
-	Function *DecodeFunc = cast<Function>(barcallee.getCallee());
+	Function *DecodeFunc = cast<Function>(DecodeFuncCallee.getCallee());
 	DecodeFunc->setCallingConv(CallingConv::C);
 
 	// Name DecodeFunc arguments
