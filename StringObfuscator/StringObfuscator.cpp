@@ -17,12 +17,12 @@ class GlobalString {
 		GlobalVariable* Glob;
 		unsigned int index;
 		int type;
-
+		int string_length;
 		static const int SIMPLE_STRING_TYPE = 1;
 		static const int STRUCT_STRING_TYPE = 2;
 
-		GlobalString(GlobalVariable* Glob) : Glob(Glob), index(-1), type(SIMPLE_STRING_TYPE) {}
-		GlobalString(GlobalVariable* Glob, unsigned int index) : Glob(Glob), index(index), type(STRUCT_STRING_TYPE) {}
+		GlobalString(GlobalVariable* Glob, int length) : Glob(Glob), index(-1), string_length(length), type(SIMPLE_STRING_TYPE) {}
+		GlobalString(GlobalVariable* Glob, unsigned int index, int length) : Glob(Glob), index(index), string_length(length), type(STRUCT_STRING_TYPE) {}
 };
 
 Function *createDecodeStubFunc(Module &M, vector<GlobalString*> &GlobalStrings, Function *DecodeFunc){
@@ -41,12 +41,16 @@ Function *createDecodeStubFunc(Module &M, vector<GlobalString*> &GlobalStrings, 
 	for(GlobalString *GlobString : GlobalStrings){
 		if(GlobString->type == GlobString->SIMPLE_STRING_TYPE){
 			auto *StrPtr = Builder.CreatePointerCast(GlobString->Glob, Type::getInt8PtrTy(Ctx, 8));
-			Builder.CreateCall(DecodeFunc, {StrPtr});
+			llvm::Value *le = llvm::ConstantInt::get(
+			llvm::IntegerType::getInt32Ty(Ctx), GlobString->string_length);			
+			Builder.CreateCall(DecodeFunc, {StrPtr, le});
 		}
 		else if(GlobString->type == GlobString->STRUCT_STRING_TYPE){
 			auto *String = Builder.CreateStructGEP(GlobString->Glob, GlobString->index);
 			auto *StrPtr = Builder.CreatePointerCast(String, Type::getInt8PtrTy(Ctx, 8));
-			Builder.CreateCall(DecodeFunc, {StrPtr});
+		 	llvm::Value *le = llvm::ConstantInt::get(
+			llvm::IntegerType::getInt32Ty(Ctx), GlobString->string_length);
+			Builder.CreateCall(DecodeFunc, {StrPtr, le});
 		}
 	}
 	Builder.CreateRetVoid();
@@ -54,55 +58,87 @@ Function *createDecodeStubFunc(Module &M, vector<GlobalString*> &GlobalStrings, 
 	return DecodeStubFunc;
 }
 
+
+// void decode(char *string, int length) {
+//     char *p = string;
+//     while (p && length-- > 0) {
+//         *(p++) -= 1; 
+//     }
+// }
+//
+// ; Function Attrs: nofree norecurse nounwind optsize uwtable
+// define dso_local void @decode(i8* %0, i32 %1) local_unnamed_addr #0 {
+//   %3 = icmp ne i8* %0, null
+//   %4 = icmp sgt i32 %1, 0
+//   %5 = and i1 %4, %3
+//   br i1 %5, label %6, label %14
+
+// 6:                                                ; preds = %2, %6
+//   %7 = phi i8* [ %10, %6 ], [ %0, %2 ]
+//   %8 = phi i32 [ %9, %6 ], [ %1, %2 ]
+//   %9 = add nsw i32 %8, -1
+//   %10 = getelementptr inbounds i8, i8* %7, i64 1
+//   %11 = load i8, i8* %7, align 1, !tbaa !2
+//   %12 = add i8 %11, -1
+//   store i8 %12, i8* %7, align 1, !tbaa !2
+//   %13 = icmp sgt i32 %8, 1
+//   br i1 %13, label %6, label %14
+
+// 14:                                               ; preds = %6, %2
+//   ret void
+// }
 Function *createDecodeFunc(Module &M){
 	auto &Ctx = M.getContext();
+	FunctionCallee barcallee = M.getOrInsertFunction("decode", 
+	/*ret*/			Type::getVoidTy(Ctx),
+ /*args*/		Type::getInt8PtrTy(Ctx, 8),
+ 				Type::getInt32Ty(Ctx));
 
-	// Add Decode function
-	FunctionCallee DecodeFuncCallee = M.getOrInsertFunction("decode",
-/*ret*/			Type::getVoidTy(Ctx),
-/*args*/		Type::getInt8PtrTy(Ctx, 8));
-	Function *DecodeFunc = cast<Function>(DecodeFuncCallee.getCallee());
+	Function *DecodeFunc = cast<Function>(barcallee.getCallee());
 	DecodeFunc->setCallingConv(CallingConv::C);
 
 	// Name DecodeFunc arguments
 	Function::arg_iterator Args = DecodeFunc->arg_begin();
-	Value *StrPtr = Args++;
-	StrPtr->setName("StrPtr");
+	Value *var0 = Args++;
+	Value *var1 = Args++;
+	
+	BasicBlock *bb2 = BasicBlock::Create(Ctx, "", DecodeFunc);
+	
+	IRBuilder<> *Builder2 = new IRBuilder<>(bb2);
+	auto *var3 = Builder2->CreateICmpNE(var0, Constant::getNullValue(Type::getInt8PtrTy(Ctx, 8)),  "var3");
+	auto *var4 = Builder2->CreateICmpSGT(var1, ConstantInt::get(IntegerType::get(Ctx, 32), 0));
+	auto *var5 = Builder2->CreateAnd(var4, var3, "var5");
+	BasicBlock *bb6 = BasicBlock::Create(Ctx, "bb6", DecodeFunc);
+	BasicBlock *bb14 = BasicBlock::Create(Ctx, "bb14", DecodeFunc);
+	Builder2->CreateCondBr(var5, bb6, bb14);
 
-	// Create blocks
-	BasicBlock *BEntry = BasicBlock::Create(Ctx, "entry", DecodeFunc);
-	BasicBlock *BWhileBody = BasicBlock::Create(Ctx, "while.body", DecodeFunc);
-	BasicBlock *BWhileEnd = BasicBlock::Create(Ctx, "while.end", DecodeFunc);
+	IRBuilder<> *Builder6 = new IRBuilder<>(bb6);
+	PHINode *phi_var7 = Builder6->CreatePHI(Type::getInt8PtrTy(Ctx, 8), 2, "var7");
+	PHINode *phi_var8 = Builder6->CreatePHI(Type::getInt32Ty(Ctx), 2, "var8");
+	auto *var9 = Builder6->CreateNSWAdd(phi_var8, ConstantInt::getSigned(IntegerType::get(Ctx, 32), -1), "var9");
+	auto *var10 = Builder6->CreateGEP(phi_var7, ConstantInt::get(IntegerType::get(Ctx, 64), 1), "var10");
 
-	// Entry block
-	IRBuilder<> *Builder = new IRBuilder<>(BEntry);
-	auto *var0 = Builder->CreateLoad(StrPtr, "var0");
-	auto *cmp5 = Builder->CreateICmpEQ(var0, Constant::getNullValue(Type::getInt8Ty(Ctx)), "cmp5");
-	Builder->CreateCondBr(cmp5, BWhileEnd, BWhileBody);
+	auto *var11 = Builder6->CreateLoad(phi_var7, "var2");
+		
+	auto *var12 = Builder6->CreateAdd(var11, ConstantInt::getSigned(IntegerType::get(Ctx, 8), -1), "var12");
+		
+	Builder6->CreateStore(var12, phi_var7);
+	auto *var13 = Builder6->CreateICmpSGT(phi_var8, ConstantInt::get(IntegerType::get(Ctx, 32), 1), "var13");
 
-	// Preheader block
-	Builder = new IRBuilder<>(BWhileBody);
-	PHINode *var1 = Builder->CreatePHI(Type::getInt8Ty(Ctx), 2, "var1");
-	PHINode *stringaddr07 = Builder->CreatePHI(Type::getInt8PtrTy(Ctx, 8), 2, "stringaddr07");
-	auto *sub = Builder->CreateSub(var1, ConstantInt::get(IntegerType::get(Ctx, 8), 1, true));
-	Builder->CreateStore(sub, stringaddr07);
-	auto *incdecptr = Builder->CreateGEP(stringaddr07, ConstantInt::get(IntegerType::get(Ctx, 64), 1), "incdecptr");
-	auto *var2 = Builder->CreateLoad(incdecptr, "var2");
-	auto cmp = Builder->CreateICmpEQ(sub, ConstantInt::get(IntegerType::get(Ctx, 8), 0), "cmp");
-	Builder->CreateCondBr(cmp, BWhileEnd, BWhileBody);
-
-	// End block
-	Builder = new IRBuilder<>(BWhileEnd);
-	Builder->CreateRetVoid();
-
-	// Fill in PHIs
-	var1->addIncoming(var0, BEntry);
-	var1->addIncoming(var2, BWhileBody);
-	stringaddr07->addIncoming(incdecptr, BWhileBody);
-	stringaddr07->addIncoming(StrPtr, BEntry);
+	Builder6->CreateCondBr(var13, bb6, bb14);
+	
+	IRBuilder<> *Builder14 = new IRBuilder<>(bb14);
+	Builder14->CreateRetVoid();
+ //%7 = phi i8* [ %10, %6 ], [ %0, %2 ]
+	phi_var7->addIncoming(var0, bb2);
+	phi_var7->addIncoming(var10, bb6);
+//   %8 = phi i32 [ %9, %6 ], [ %1, %2 ]
+	phi_var8->addIncoming(var1, bb2);
+	phi_var8->addIncoming(var9, bb6);
 
 	return DecodeFunc;
 }
+
 
 void createDecodeStubBlock(Function *F, Function *DecodeStubFunc){
 	auto &Ctx = F->getContext();
@@ -159,7 +195,7 @@ vector<GlobalString*> encodeGlobalStrings(Module& M){
 			// Overwrite the global value
 			Glob.setInitializer(NewConst);
 
-			GlobalStrings.push_back(new GlobalString(&Glob));
+			GlobalStrings.push_back(new GlobalString(&Glob, Size));
 			Glob.setConstant(false);
 		}
 		else if(isa<ConstantStruct>(Initializer)){
@@ -184,7 +220,7 @@ vector<GlobalString*> encodeGlobalStrings(Module& M){
 				// Overwrite the struct member
 				CS->setOperand(i, NewConst);
 
-				GlobalStrings.push_back(new GlobalString(&Glob, i));
+				GlobalStrings.push_back(new GlobalString(&Glob, i, Size));
 				Glob.setConstant(false);
 			}
 		}
